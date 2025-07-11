@@ -1,6 +1,6 @@
 import { Search } from 'lucide-react';
 
-const SearchForm = ({ searchQuery, setSearchQuery, priceRange, setPriceRange, handleSearch }) => (
+const SearchForm = ({ searchQuery, setSearchQuery, priceRange, setPriceRange, handleSearch, priceScoreFilter, setPriceScoreFilter }) => (
   <div className="relative z-10 flex items-center justify-center min-h-screen px-4">
     <div className="text-center max-w-4xl mx-auto">
       <h2 className="text-5xl md:text-7xl font-bold text-white mb-6">
@@ -25,6 +25,21 @@ const SearchForm = ({ searchQuery, setSearchQuery, priceRange, setPriceRange, ha
                 className="w-full pl-12 pr-4 py-4 bg-white/20 backdrop-blur-sm text-white placeholder-white/70 border border-white/30 rounded-xl focus:ring-2 focus:ring-white/50 focus:border-white/50 text-lg"
               />
             </div>
+            <div className="mt-4">
+              <select
+                value={priceScoreFilter}
+                onChange={(e) => setPriceScoreFilter(e.target.value)}
+                className="w-full px-4 py-3 bg-white/20 backdrop-blur-sm text-white border border-white/30 rounded-xl focus:ring-2 focus:ring-white/50 focus:border-white/50 text-lg"
+              >
+                <option value="">Filtrar por precio</option>
+                <option value="muy-bueno">Muy Bueno</option>
+                <option value="bueno">Bueno</option>
+                <option value="regular">Regular</option>
+                <option value="malo">Malo</option>
+                <option value="muy-malo">Muy Malo</option>
+              </select>
+            </div>
+
             <div className="flex gap-3">
               <input
                 type="number"

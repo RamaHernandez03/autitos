@@ -108,6 +108,65 @@ def extract_car_details(item):
 
     return details
 
+def get_kavak_cars(query: str, pages: int, dollar_rate: float):
+    base_url = "https://www.kavak.com/ar/usados/"
+    search_query = "-".join(query.strip().lower().split())
+    url = f"{base_url}{search_query}"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+    }
+
+    cars = []
+
+    r = requests.get(url, headers=headers)
+    if r.status_code != 200:
+        return []
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    cards = soup.find_all("a", class_=re.compile("card-product_cardProduct__"))
+
+    for card in cards:
+        try:
+            title = card.find("div", class_=re.compile("card-product_cardProduct__header")).text.strip()
+            price_container = card.find("div", class_=re.compile("priceContainer"))
+            price_text = price_container.get_text().strip().replace("$", "").replace(".", "")
+            price = int(re.search(r'\d+', price_text).group())
+
+            image_tag = card.find("img")
+            image = image_tag["src"] if image_tag and "src" in image_tag.attrs else ""
+
+            details_text = card.get_text()
+            year = None
+            km = None
+            year_match = re.search(r"(20\d{2}|19\d{2})", details_text)
+            km_match = re.search(r"(\d{1,3}(?:\.\d{3})*)\s*km", details_text.lower())
+
+            if year_match:
+                year = int(year_match.group())
+
+            if km_match:
+                km = int(km_match.group(1).replace(".", ""))
+
+            car = {
+                "id": len(cars) + 1,
+                "title": title,
+                "price": price,
+                "priceUSD": int(price / dollar_rate),
+                "year": year,
+                "km": km,
+                "location": "Buenos Aires",  # fija en Kavak
+                "image": image,
+                "url": "https://www.kavak.com" + card["href"],
+                "priceScore": "regular",
+                "publishDate": "desconocido"
+            }
+            cars.append(car)
+        except Exception as e:
+            print("Error al procesar una tarjeta de Kavak:", e)
+
+    return cars
+
 def extract_car_url(item):
     """
     Extrae la URL de la publicación del auto
@@ -136,74 +195,121 @@ def get_km_cluster(km):
         return "+200k"
 
 @app.get("/api/cars")
-def get_cars(query: str = Query(...), pages: int = 3):
+def get_cars(query: str = Query(...), pages: int = 3, include_kavak: bool = True, include_ml: bool = True):
     search_query = "-".join(query.strip().split())
     headers = {
         "User-Agent": "Mozilla/5.0",
     }
 
     dollar_rate = get_dollar_rate()
-    cars = []
+    all_cars = []
 
-    for page in range(pages):
-        offset = page * 48
-        url = f"https://listado.mercadolibre.com.ar/{search_query}_Desde_{offset}"
+    if include_ml:
+        for page in range(pages):
+            offset = page * 48
+            url = f"https://listado.mercadolibre.com.ar/{search_query}_Desde_{offset}"
 
-        r = requests.get(url, headers=headers)
-        if r.status_code != 200:
-            continue  # saltar esta página
+            r = requests.get(url, headers=headers)
+            if r.status_code != 200:
+                continue
 
-        soup = BeautifulSoup(r.text, 'html.parser')
-        items = soup.find_all('li', class_='ui-search-layout__item')
+            soup = BeautifulSoup(r.text, 'html.parser')
+            items = soup.find_all('li', class_='ui-search-layout__item')
 
-        for i, item in enumerate(items):
-            img_tag = item.find('img')
-            title = img_tag['alt'] if img_tag and 'alt' in img_tag.attrs else 'N/A'
+            for i, item in enumerate(items):
+                img_tag = item.find('img')
+                title = img_tag['alt'] if img_tag and 'alt' in img_tag.attrs else 'N/A'
 
-            image = "N/A"
-            if img_tag:
-                if 'src' in img_tag.attrs and not img_tag['src'].startswith('data:image'):
-                    image = img_tag['src']
-                elif 'data-src' in img_tag.attrs:
-                    image = img_tag['data-src']
-                elif 'data-srcset' in img_tag.attrs:
-                    srcset_parts = img_tag['data-srcset'].split(',')
-                    if srcset_parts:
-                        image = srcset_parts[-1].split()[0]
-            if image.startswith('data:image') or image == "N/A":
-                image = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/480px-No_image_available.svg.png"
+                image = "N/A"
+                if img_tag:
+                    if 'src' in img_tag.attrs and not img_tag['src'].startswith('data:image'):
+                        image = img_tag['src']
+                    elif 'data-src' in img_tag.attrs:
+                        image = img_tag['data-src']
+                    elif 'data-srcset' in img_tag.attrs:
+                        srcset_parts = img_tag['data-srcset'].split(',')
+                        if srcset_parts:
+                            image = srcset_parts[-1].split()[0]
+                if image.startswith('data:image') or image == "N/A":
+                    image = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/480px-No_image_available.svg.png"
 
-            price_container = item.find('span', class_='andes-money-amount')
-            original_price, is_usd = parse_price_and_currency(price_container)
+                price_container = item.find('span', class_='andes-money-amount')
+                original_price, is_usd = parse_price_and_currency(price_container)
 
-            if is_usd:
-                price_in_pesos = int(original_price * dollar_rate)
-                price_usd = original_price
-            else:
-                price_in_pesos = original_price
-                price_usd = int(original_price / dollar_rate) if original_price > 0 else 0
+                if is_usd:
+                    price_in_pesos = int(original_price * dollar_rate)
+                    price_usd = original_price
+                else:
+                    price_in_pesos = original_price
+                    price_usd = int(original_price / dollar_rate) if original_price > 0 else 0
 
-            car_details = extract_car_details(item)
-            car_url = extract_car_url(item)
+                car_details = extract_car_details(item)
+                car_url = extract_car_url(item)
 
-            car = {
-                "id": len(cars) + 1,
-                "title": title,
-                "price": price_in_pesos,
-                "priceUSD": price_usd,
-                "year": car_details["year"],
-                "km": car_details["km"],
-                "location": car_details["location"],
-                "image": image,
-                "url": car_url,
-                "priceScore": "regular",
-                "publishDate": car_details["publishDate"] or "desconocido"
-            }
-            cars.append(car)
+                car = {
+                    "id": len(all_cars) + 1,
+                    "title": title,
+                    "price": price_in_pesos,
+                    "priceUSD": price_usd,
+                    "year": car_details["year"],
+                    "km": car_details["km"],
+                    "location": car_details["location"],
+                    "image": image,
+                    "url": car_url,
+                    "priceScore": "regular",
+                    "publishDate": car_details["publishDate"] or "desconocido"
+                }
+                all_cars.append(car)
 
-    # Agrupación por km
+    if include_kavak:
+        kavak_url = f"https://www.kavak.com/ar/usados/{search_query}"
+        r = requests.get(kavak_url, headers=headers)
+        if r.status_code == 200:
+            soup = BeautifulSoup(r.text, 'html.parser')
+            cards = soup.find_all("a", class_=re.compile("card-product_cardProduct__"))
+
+            for card in cards:
+                try:
+                    title = card.find("div", class_=re.compile("card-product_cardProduct__header")).text.strip()
+                    price_container = card.find("div", class_=re.compile("priceContainer"))
+                    price_text = price_container.get_text().strip().replace("$", "").replace(".", "")
+                    price = int(re.search(r'\d+', price_text).group())
+
+                    image_tag = card.find("img")
+                    image = image_tag["src"] if image_tag and "src" in image_tag.attrs else ""
+
+                    details_text = card.get_text()
+                    year = None
+                    km = None
+                    year_match = re.search(r"(20\d{2}|19\d{2})", details_text)
+                    km_match = re.search(r"(\d{1,3}(?:\.\d{3})*)\s*km", details_text.lower())
+
+                    if year_match:
+                        year = int(year_match.group())
+
+                    if km_match:
+                        km = int(km_match.group(1).replace(".", ""))
+
+                    car = {
+                        "id": len(all_cars) + 1,
+                        "title": title,
+                        "price": price,
+                        "priceUSD": int(price / dollar_rate),
+                        "year": year,
+                        "km": km,
+                        "location": "Buenos Aires",
+                        "image": image,
+                        "url": card["href"],
+                        "priceScore": "regular",
+                        "publishDate": "desconocido"
+                    }
+                    all_cars.append(car)
+                except Exception as e:
+                    print("Error al procesar una tarjeta de Kavak:", e)
+
+    # Agrupación por km para priceScore
     cluster_prices = defaultdict(list)
-    for car in cars:
+    for car in all_cars:
         cluster = get_km_cluster(car["km"])
         cluster_prices[cluster].append(car["price"])
 
@@ -212,7 +318,7 @@ def get_cars(query: str = Query(...), pages: int = 3):
         if prices:
             cluster_avg[cluster] = sum(prices) / len(prices)
 
-    for car in cars:
+    for car in all_cars:
         cluster = get_km_cluster(car["km"])
         avg_price = cluster_avg.get(cluster)
         p = car["price"]
@@ -232,7 +338,9 @@ def get_cars(query: str = Query(...), pages: int = 3):
 
         car["priceScore"] = score
 
-    return cars
+    return all_cars
+
+
 
 
 @app.get("/api/dollar-rate")

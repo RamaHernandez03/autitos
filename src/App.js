@@ -21,8 +21,11 @@ const AutoValor = () => {
   const [dollarRate, setDollarRate] = useState(null);
   const [dollarLoading, setDollarLoading] = useState(false);
   const [dollarError, setDollarError] = useState(null);
+  const [paginaActual, setPaginaActual] = useState(1);
+  const autosPorPagina = 20;
+  const [priceScoreFilter, setPriceScoreFilter] = useState('');
 
-  // Historial de precios (este puede seguir siendo estático por ahora)
+
   const priceHistory = [
     { month: 'Jul 2024', price: 7800 },
     { month: 'Ago 2024', price: 8200 },
@@ -33,12 +36,10 @@ const AutoValor = () => {
     { month: 'Ene 2025', price: 10200 }
   ];
 
-  // Obtener cotización del dólar al cargar el componente
   useEffect(() => {
     const fetchDollarRate = async () => {
       setDollarLoading(true);
       setDollarError(null);
-      
       try {
         const response = await axios.get('http://localhost:8000/api/dollar-rate');
         if (response.data && response.data.dollar_rate) {
@@ -53,81 +54,46 @@ const AutoValor = () => {
         setDollarLoading(false);
       }
     };
-    
     fetchDollarRate();
   }, []);
 
-  // Funciones auxiliares
-  const getPriceScoreColor = (score) => {
-    return {
-      'muy-bueno': 'bg-green-500',
-      'bueno': 'bg-green-400',
-      'regular': 'bg-yellow-400',
-      'malo': 'bg-orange-500',
-      'muy-malo': 'bg-red-500'
-    }[score] || 'bg-gray-400';
-  };
+  const getPriceScoreColor = (score) => ({
+    'muy-bueno': 'bg-green-500',
+    'bueno': 'bg-green-400',
+    'regular': 'bg-yellow-400',
+    'malo': 'bg-orange-500',
+    'muy-malo': 'bg-red-500'
+  }[score] || 'bg-gray-400');
 
-  const getPriceScoreText = (score) => {
-    return {
-      'muy-bueno': 'Muy Bueno',
-      'bueno': 'Bueno',
-      'regular': 'Regular',
-      'malo': 'Malo',
-      'muy-malo': 'Muy Malo'
-    }[score] || 'Regular';
-  };
+  const getPriceScoreText = (score) => ({
+    'muy-bueno': 'Muy Bueno',
+    'bueno': 'Bueno',
+    'regular': 'Regular',
+    'malo': 'Malo',
+    'muy-malo': 'Muy Malo'
+  }[score] || 'Regular');
 
-  const getPriceScoreWidth = (score) => {
-    return {
-      'muy-bueno': 'w-1/5',
-      'bueno': 'w-2/5',
-      'regular': 'w-3/5',
-      'malo': 'w-4/5',
-      'muy-malo': 'w-full'
-    }[score] || 'w-3/5';
-  };
+  const getPriceScoreWidth = (score) => ({
+    'muy-bueno': 'w-1/5',
+    'bueno': 'w-2/5',
+    'regular': 'w-3/5',
+    'malo': 'w-4/5',
+    'muy-malo': 'w-full'
+  }[score] || 'w-3/5');
 
   const formatPrice = (price) => {
-    if (price === null || price === undefined || isNaN(price)) {
-      return 'Precio no disponible';
-    }
-    return new Intl.NumberFormat('es-AR', {
-      style: 'currency',
-      currency: 'ARS',
-      minimumFractionDigits: 0
-    }).format(price);
+    if (price == null || isNaN(price)) return 'Precio no disponible';
+    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(price);
   };
 
   const formatUSD = (price) => {
-    if (price === null || price === undefined || isNaN(price)) {
-      return 'N/A';
-    }
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0
-    }).format(price);
+    if (price == null || isNaN(price)) return 'N/A';
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 }).format(price);
   };
 
   const formatOriginalPrice = (car) => {
-    if (!car.originalPrice || car.originalPrice === 0) {
-      return 'N/A';
-    }
-    
-    if (car.currency === 'USD') {
-      return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        minimumFractionDigits: 0
-      }).format(car.originalPrice);
-    } else {
-      return new Intl.NumberFormat('es-AR', {
-        style: 'currency',
-        currency: 'ARS',
-        minimumFractionDigits: 0
-      }).format(car.originalPrice);
-    }
+    if (!car.originalPrice || car.originalPrice === 0) return 'N/A';
+    return car.currency === 'USD' ? formatUSD(car.originalPrice) : formatPrice(car.originalPrice);
   };
 
   const handleSearch = async (e) => {
@@ -136,35 +102,27 @@ const AutoValor = () => {
       setHasSearched(true);
       setLoading(true);
       setError(null);
-      setCars([]); // Limpiar resultados anteriores
-      
+      setCars([]);
       try {
-        // Hacer la petición al backend
         const response = await axios.get(`http://localhost:8000/api/cars?query=${encodeURIComponent(searchQuery.trim())}`);
-        
-        // Validar que la respuesta sea un array
         if (Array.isArray(response.data)) {
           setCars(response.data);
+          setPaginaActual(1);
         } else {
           setError('Formato de respuesta inválido');
           setCars([]);
         }
       } catch (err) {
         console.error('Error al buscar autos:', err);
-        if (err.response) {
-          // Error del servidor
-          setError(`Error del servidor: ${err.response.status} - ${err.response.statusText}`);
-        } else if (err.request) {
-          // Error de red
-          setError('Error de conexión. Verifica que el servidor esté corriendo en http://localhost:8000');
-        } else {
-          // Otro error
-          setError('Error inesperado al buscar autos');
-        }
+        setError(err.response
+          ? `Error del servidor: ${err.response.status} - ${err.response.statusText}`
+          : err.request
+          ? 'Error de conexión. Verifica que el servidor esté corriendo en http://localhost:8000'
+          : 'Error inesperado al buscar autos'
+        );
         setCars([]);
       } finally {
         setLoading(false);
-        // Scroll suave a la sección de resultados
         setTimeout(() => {
           const section = document.getElementById('results-section');
           if (section) section.scrollIntoView({ behavior: 'smooth' });
@@ -173,25 +131,31 @@ const AutoValor = () => {
     }
   };
 
-  // Filtrar autos por rango de precios (usando USD para consistencia)
   const filteredCars = cars.filter((car) => {
-    // Validar que car y car.priceUSD existan
-    if (!car || car.priceUSD === null || car.priceUSD === undefined) {
-      return false;
-    }
-    
+    if (!car || car.priceUSD == null) return false;
+  
     const carPrice = parseInt(car.priceUSD);
-    const minPrice = priceRange.min ? parseInt(priceRange.min) : 0;
-    const maxPrice = priceRange.max ? parseInt(priceRange.max) : Infinity;
-    
-    return carPrice >= minPrice && carPrice <= maxPrice;
+    const min = priceRange.min ? parseInt(priceRange.min) : 0;
+    const max = priceRange.max ? parseInt(priceRange.max) : Infinity;
+    const inPriceRange = carPrice >= min && carPrice <= max;
+    const matchesPriceScore = priceScoreFilter ? car.priceScore === priceScoreFilter : true;
+  
+    return inPriceRange && matchesPriceScore;
   });
+  
+
+  const indiceInicio = (paginaActual - 1) * autosPorPagina;
+  const autosPaginados = filteredCars.slice(indiceInicio, indiceInicio + autosPorPagina);
+  const totalPaginas = Math.ceil(filteredCars.length / autosPorPagina);
+
+  const irPagina = (num) => {
+    if (num >= 1 && num <= totalPaginas) setPaginaActual(num);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Hero background={fondo}>
         <Header />
-        {/* Mostrar cotización del dólar */}
         {dollarRate && (
           <div className="text-center mb-4">
             <p className="text-white text-sm bg-black bg-opacity-20 rounded-lg px-4 py-2 inline-block">
@@ -205,7 +169,10 @@ const AutoValor = () => {
           priceRange={priceRange}
           setPriceRange={setPriceRange}
           handleSearch={handleSearch}
+          priceScoreFilter={priceScoreFilter}
+          setPriceScoreFilter={setPriceScoreFilter}
         />
+
       </Hero>
 
       {hasSearched && (
@@ -214,8 +181,7 @@ const AutoValor = () => {
             <div className="lg:col-span-3 mb-8">
               <ResultStats filteredCars={filteredCars} loading={loading} error={error} />
             </div>
-            
-            {/* Mostrar estado de carga */}
+
             {loading && (
               <div className="lg:col-span-3 text-center py-12">
                 <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -224,7 +190,6 @@ const AutoValor = () => {
               </div>
             )}
 
-            {/* Mostrar errores */}
             {error && !loading && (
               <div className="lg:col-span-3 text-center py-12">
                 <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
@@ -234,32 +199,70 @@ const AutoValor = () => {
               </div>
             )}
 
-            {/* Mostrar resultados */}
             {!loading && !error && (
               <>
-                <ResultList
-                  filteredCars={filteredCars}
-                  selectedCar={selectedCar}
-                  setSelectedCar={setSelectedCar}
-                  helpers={{
-                    searchQuery,
-                    formatPrice,
-                    formatUSD,
-                    formatOriginalPrice,
-                    getPriceScoreText,
-                    getPriceScoreColor,
-                    getPriceScoreWidth
-                  }}
-                />
-                <div className="space-y-6">
-                  <PriceHistoryPanel data={priceHistory} />
-                  {/* Componente de cotización del dólar */}
-                  <DollarRateDisplay 
-                    dollarRate={dollarRate} 
-                    loading={dollarLoading} 
-                    error={dollarError} 
+                {/* Resultados (2 columnas) */}
+                <div className="lg:col-span-2">
+                  <ResultList
+                    filteredCars={autosPaginados}
+                    selectedCar={selectedCar}
+                    setSelectedCar={setSelectedCar}
+                    helpers={{
+                      searchQuery,
+                      formatPrice,
+                      formatUSD,
+                      formatOriginalPrice,
+                      getPriceScoreText,
+                      getPriceScoreColor,
+                      getPriceScoreWidth
+                    }}
                   />
+
+                  {/* Paginador */}
+                  <div className="flex flex-wrap justify-center items-center gap-2 mt-8">
+                    <button
+                      onClick={() => irPagina(paginaActual - 1)}
+                      disabled={paginaActual === 1}
+                      className="px-3 py-1 rounded bg-gray-300 hover:bg-gray-400 disabled:opacity-50"
+                    >
+                      ← Anterior
+                    </button>
+                    {[...Array(totalPaginas)].map((_, idx) => {
+                      const pageNum = idx + 1;
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => irPagina(pageNum)}
+                          className={`px-3 py-1 rounded ${
+                            pageNum === paginaActual
+                              ? 'bg-blue-600 text-white font-semibold'
+                              : 'bg-gray-200 hover:bg-gray-300'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                    <button
+                      onClick={() => irPagina(paginaActual + 1)}
+                      disabled={paginaActual === totalPaginas}
+                      className="px-3 py-1 rounded bg-gray-300 hover:bg-gray-400 disabled:opacity-50"
+                    >
+                      Siguiente →
+                    </button>
+                  </div>
                 </div>
+
+                {/* Panel derecho */}
+                <div className="space-y-6 lg:sticky lg:top-20 h-fit">
+                <PriceHistoryPanel data={priceHistory} />
+                <DollarRateDisplay 
+                  dollarRate={dollarRate} 
+                  loading={dollarLoading} 
+                  error={dollarError} 
+                />
+                </div>
+
               </>
             )}
           </div>

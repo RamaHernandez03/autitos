@@ -58,6 +58,9 @@ const ResultCard = ({
 
   const transferPrice = calculateTransferPrice(car.price);
   const formattedKm = formatKilometers(car.km);
+  const sourceName = car.url?.includes('kavak.com') ? 'Kavak' : 'MercadoLibre';
+
+
 
   return (
     <div
@@ -180,7 +183,7 @@ const ResultCard = ({
                   d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" 
                 />
               </svg>
-              Ver Publicación en MercadoLibre
+              Ver Publicación en {sourceName}
             </button>
           </div>
 
@@ -203,7 +206,7 @@ const ResultCard = ({
           {/* Precio por transferencia - Disclaimer */}
           <div className="mt-2 pt-2 border-t border-gray-100">
             <p className="text-xs text-gray-500 italic">
-              ⚠️ Atención: Precio de transferencia aproximado {formatTransferPrice(transferPrice)} (4% Aprox.)
+              ⚠️ Atención: Costo de transferencia aproximado {formatTransferPrice(transferPrice)} (4% Aprox.)
             </p>
           </div>
         </div>
