@@ -26,6 +26,7 @@ class Car(BaseModel):
     km: int | None = None
     location: str | None = None
     image: str
+    url: str  # ← NUEVA PROPIEDAD
     priceScore: str
     publishDate: str | None = None
 
@@ -107,6 +108,21 @@ def extract_car_details(item):
 
     return details
 
+def extract_car_url(item):
+    """
+    Extrae la URL de la publicación del auto
+    """
+    link_element = item.find('a', href=True)
+
+    if link_element:
+        href = link_element['href']
+        if href.startswith('/'):
+            return 'https://www.mercadolibre.com.ar' + href
+        return href
+    
+    return "https://www.mercadolibre.com.ar"  # fallback
+  # URL por defecto
+
 def get_km_cluster(km):
     if km is None:
         return "desconocido"
@@ -120,68 +136,70 @@ def get_km_cluster(km):
         return "+200k"
 
 @app.get("/api/cars")
-def get_cars(query: str = Query(...)):
+def get_cars(query: str = Query(...), pages: int = 3):
     search_query = "-".join(query.strip().split())
-    url = f"https://listado.mercadolibre.com.ar/{search_query}"
-
     headers = {
         "User-Agent": "Mozilla/5.0",
     }
 
-    r = requests.get(url, headers=headers)
-    if r.status_code != 200:
-        return []
-
-    soup = BeautifulSoup(r.text, 'html.parser')
-    items = soup.find_all('li', class_='ui-search-layout__item')
-
     dollar_rate = get_dollar_rate()
-
     cars = []
-    for i, item in enumerate(items):
-        img_tag = item.find('img')
-        title = img_tag['alt'] if img_tag and 'alt' in img_tag.attrs else 'N/A'
 
-        image = "N/A"
-        if img_tag:
-            if 'src' in img_tag.attrs and not img_tag['src'].startswith('data:image'):
-                image = img_tag['src']
-            elif 'data-src' in img_tag.attrs:
-                image = img_tag['data-src']
-            elif 'data-srcset' in img_tag.attrs:
-                # Extrae la URL de mayor calidad del srcset
-                srcset_parts = img_tag['data-srcset'].split(',')
-                if srcset_parts:
-                    image = srcset_parts[-1].split()[0]
+    for page in range(pages):
+        offset = page * 48
+        url = f"https://listado.mercadolibre.com.ar/{search_query}_Desde_{offset}"
 
-        if image.startswith('data:image') or image == "N/A":
-            image = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/480px-No_image_available.svg.png"
+        r = requests.get(url, headers=headers)
+        if r.status_code != 200:
+            continue  # saltar esta página
 
-        price_container = item.find('span', class_='andes-money-amount')
-        original_price, is_usd = parse_price_and_currency(price_container)
+        soup = BeautifulSoup(r.text, 'html.parser')
+        items = soup.find_all('li', class_='ui-search-layout__item')
 
-        if is_usd:
-            price_in_pesos = int(original_price * dollar_rate)
-            price_usd = original_price
-        else:
-            price_in_pesos = original_price
-            price_usd = int(original_price / dollar_rate) if original_price > 0 else 0
+        for i, item in enumerate(items):
+            img_tag = item.find('img')
+            title = img_tag['alt'] if img_tag and 'alt' in img_tag.attrs else 'N/A'
 
-        car_details = extract_car_details(item)
+            image = "N/A"
+            if img_tag:
+                if 'src' in img_tag.attrs and not img_tag['src'].startswith('data:image'):
+                    image = img_tag['src']
+                elif 'data-src' in img_tag.attrs:
+                    image = img_tag['data-src']
+                elif 'data-srcset' in img_tag.attrs:
+                    srcset_parts = img_tag['data-srcset'].split(',')
+                    if srcset_parts:
+                        image = srcset_parts[-1].split()[0]
+            if image.startswith('data:image') or image == "N/A":
+                image = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/480px-No_image_available.svg.png"
 
-        car = {
-            "id": i + 1,
-            "title": title,
-            "price": price_in_pesos,
-            "priceUSD": price_usd,
-            "year": car_details["year"],
-            "km": car_details["km"],
-            "location": car_details["location"],
-            "image": image,
-            "priceScore": "regular",
-            "publishDate": car_details["publishDate"] or "desconocido"
-        }
-        cars.append(car)
+            price_container = item.find('span', class_='andes-money-amount')
+            original_price, is_usd = parse_price_and_currency(price_container)
+
+            if is_usd:
+                price_in_pesos = int(original_price * dollar_rate)
+                price_usd = original_price
+            else:
+                price_in_pesos = original_price
+                price_usd = int(original_price / dollar_rate) if original_price > 0 else 0
+
+            car_details = extract_car_details(item)
+            car_url = extract_car_url(item)
+
+            car = {
+                "id": len(cars) + 1,
+                "title": title,
+                "price": price_in_pesos,
+                "priceUSD": price_usd,
+                "year": car_details["year"],
+                "km": car_details["km"],
+                "location": car_details["location"],
+                "image": image,
+                "url": car_url,
+                "priceScore": "regular",
+                "publishDate": car_details["publishDate"] or "desconocido"
+            }
+            cars.append(car)
 
     # Agrupación por km
     cluster_prices = defaultdict(list)
@@ -216,11 +234,11 @@ def get_cars(query: str = Query(...)):
 
     return cars
 
+
 @app.get("/api/dollar-rate")
 def get_current_dollar_rate():
     rate = get_dollar_rate()
     return {"dollar_rate": rate}
-
 
 @app.get("/api/debug-html")
 def debug_html_structure(query: str = Query(...)):
@@ -253,10 +271,17 @@ def debug_html_structure(query: str = Query(...)):
         if not attributes_container:
             attributes_container = item.find('ul', class_='ui-search-item__attributes')
         
+        # Debug de URLs también
+        url_element = item.find('a', class_='ui-search-link')
+        if not url_element:
+            url_element = item.find('a', href=re.compile(r'/[A-Z]{3}\d+'))
+        
         item_debug = {
             "index": i,
             "title": title_element.text.strip() if title_element else "No title found",
             "location": location_element.text.strip() if location_element else "No location found",
+            "url": url_element['href'] if url_element else "No URL found",
+            "url_html": str(url_element) if url_element else "No URL element",
             "attributes": [],
             "location_html": str(location_element) if location_element else "No location element",
             "attributes_html": str(attributes_container) if attributes_container else "No attributes container"

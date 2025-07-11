@@ -46,6 +46,16 @@ const ResultCard = ({
     return 'bg-red-100 text-red-800'; // Alto kilometraje
   };
 
+  // Función para manejar el clic en "Ver Publicación"
+  const handleViewListing = (e) => {
+    e.stopPropagation(); // Evitar que se active el onSelect del card
+    if (car.url) {
+      window.open(car.url, '_blank', 'noopener,noreferrer');
+    } else {
+      console.error('URL no disponible para este auto');
+    }
+  };
+
   const transferPrice = calculateTransferPrice(car.price);
   const formattedKm = formatKilometers(car.km);
 
@@ -127,30 +137,52 @@ const ResultCard = ({
 
           {/* Información adicional en grid responsive */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-gray-600 mb-4">
-  {(car.year || car.km) && (
-    <div className="flex items-center gap-4">
-      {car.year && (
-        <div className="flex items-center">
-          <span className="font-medium text-gray-700">🗓️ Año:</span>
-          <span className="ml-2">{car.year}</span>
-        </div>
-      )}
-      {car.km && (
-        <div className="flex items-center">
-          <span className="font-medium text-gray-700">🚗</span>
-          <span className="ml-1">{formattedKm}</span>
-        </div>
-      )}
-    </div>
-  )}
-  {car.location && (
-    <div className="flex items-center sm:col-span-2">
-      <span className="font-medium text-gray-700">📍 Ubicación:</span>
-      <span className="ml-2">{car.location}</span>
-    </div>
-  )}
-</div>
+            {(car.year || car.km) && (
+              <div className="flex items-center gap-4">
+                {car.year && (
+                  <div className="flex items-center">
+                    <span className="font-medium text-gray-700">🗓️ Año:</span>
+                    <span className="ml-2">{car.year}</span>
+                  </div>
+                )}
+                {car.km && (
+                  <div className="flex items-center">
+                    <span className="font-medium text-gray-700">🚗</span>
+                    <span className="ml-1">{formattedKm}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            {car.location && (
+              <div className="flex items-center sm:col-span-2">
+                <span className="font-medium text-gray-700">📍 Ubicación:</span>
+                <span className="ml-2">{car.location}</span>
+              </div>
+            )}
+          </div>
 
+          {/* Botón Ver Publicación */}
+          <div className="mb-4">
+            <button
+              onClick={handleViewListing}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2"
+            >
+              <svg 
+                className="w-4 h-4" 
+                fill="none" 
+                stroke="currentColor" 
+                viewBox="0 0 24 24"
+              >
+                <path 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round" 
+                  strokeWidth={2} 
+                  d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" 
+                />
+              </svg>
+              Ver Publicación en MercadoLibre
+            </button>
+          </div>
 
           {/* Indicador de conversión */}
           {car.currency === 'USD' && (
@@ -171,7 +203,7 @@ const ResultCard = ({
           {/* Precio por transferencia - Disclaimer */}
           <div className="mt-2 pt-2 border-t border-gray-100">
             <p className="text-xs text-gray-500 italic">
-              ⚠️ Atención: Precio de transferencia aproximado AR{formatTransferPrice(transferPrice)} (4% Aprox.)
+              ⚠️ Atención: Precio de transferencia aproximado {formatTransferPrice(transferPrice)} (4% Aprox.)
             </p>
           </div>
         </div>

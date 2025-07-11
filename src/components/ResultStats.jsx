@@ -22,19 +22,8 @@ const ResultStats = ({ filteredCars }) => {
       <div className="bg-white rounded-xl shadow-sm p-6">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-gray-600">Precio Promedio</p>
-            <p className="text-3xl font-bold text-gray-900">${avg.toFixed(1)}K</p>
-          </div>
-          <div className="bg-green-100 p-3 rounded-xl">
-            <DollarSign className="h-6 w-6 text-green-600" />
-          </div>
-        </div>
-      </div>
-      <div className="bg-white rounded-xl shadow-sm p-6">
-        <div className="flex items-center justify-between">
-          <div>
             <p className="text-sm font-medium text-gray-600">Precio Mínimo</p>
-            <p className="text-3xl font-bold text-gray-900">${min.toFixed(1)}K</p>
+            <p className="text-3xl font-bold text-gray-900">US${min.toFixed(1)}</p>
           </div>
           <div className="bg-yellow-100 p-3 rounded-xl">
             <TrendingUp className="h-6 w-6 text-yellow-600" />
@@ -44,8 +33,19 @@ const ResultStats = ({ filteredCars }) => {
       <div className="bg-white rounded-xl shadow-sm p-6">
         <div className="flex items-center justify-between">
           <div>
+            <p className="text-sm font-medium text-gray-600">Precio Promedio</p>
+            <p className="text-3xl font-bold text-gray-900">US${avg.toFixed(1)}</p>
+          </div>
+          <div className="bg-green-100 p-3 rounded-xl">
+            <DollarSign className="h-6 w-6 text-green-600" />
+          </div>
+        </div>
+      </div>
+      <div className="bg-white rounded-xl shadow-sm p-6">
+        <div className="flex items-center justify-between">
+          <div>
             <p className="text-sm font-medium text-gray-600">Precio Máximo</p>
-            <p className="text-3xl font-bold text-gray-900">${max.toFixed(1)}K</p>
+            <p className="text-3xl font-bold text-gray-900">US${max.toFixed(1)}</p>
           </div>
           <div className="bg-red-100 p-3 rounded-xl">
             <TrendingUp className="h-6 w-6 text-red-600" />
