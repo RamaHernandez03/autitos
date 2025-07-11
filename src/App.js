@@ -1,87 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
 import './index.css';
 import fondo from './assets/mustang.jpeg';
-
-// Componentes
 import Header from './components/Header';
 import Hero from './components/Hero';
 import SearchForm from './components/SearchForm';
 import ResultStats from './components/ResultStats';
 import ResultList from './components/ResultList';
 import PriceHistoryPanel from './components/PriceHistoryPanel';
+import DollarRateDisplay from './components/DollarRateDisplay';
 
 const AutoValor = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCar, setSelectedCar] = useState(null);
   const [priceRange, setPriceRange] = useState({ min: '', max: '' });
   const [hasSearched, setHasSearched] = useState(false);
+  const [cars, setCars] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [dollarRate, setDollarRate] = useState(null);
+  const [dollarLoading, setDollarLoading] = useState(false);
+  const [dollarError, setDollarError] = useState(null);
 
-  // Mock autos
-  const mockCars = [
-    {
-      id: 1,
-      title: 'Volkswagen Gol Trend 1.6',
-      price: 8500000,
-      priceUSD: 8500,
-      year: 2018,
-      km: 85000,
-      location: 'Capital Federal',
-      image: '/api/placeholder/300/200',
-      priceScore: 'muy-bueno',
-      publishDate: '2025-01-15'
-    },
-    {
-      id: 2,
-      title: 'Volkswagen Gol Trend 1.6 Comfortline',
-      price: 9200000,
-      priceUSD: 9200,
-      year: 2019,
-      km: 65000,
-      location: 'San Isidro, Buenos Aires',
-      image: '/api/placeholder/300/200',
-      priceScore: 'bueno',
-      publishDate: '2025-01-14'
-    },
-    {
-      id: 3,
-      title: 'Volkswagen Gol Trend 1.6 MSI',
-      price: 11500000,
-      priceUSD: 11500,
-      year: 2020,
-      km: 45000,
-      location: 'La Plata, Buenos Aires',
-      image: '/api/placeholder/300/200',
-      priceScore: 'regular',
-      publishDate: '2025-01-13'
-    },
-    {
-      id: 4,
-      title: 'Volkswagen Gol Trend 1.6 Highline',
-      price: 13800000,
-      priceUSD: 13800,
-      year: 2021,
-      km: 28000,
-      location: 'Quilmes, Buenos Aires',
-      image: '/api/placeholder/300/200',
-      priceScore: 'malo',
-      publishDate: '2025-01-12'
-    },
-    {
-      id: 5,
-      title: 'Volkswagen Gol Trend 1.6 Trendline',
-      price: 15200000,
-      priceUSD: 15200,
-      year: 2022,
-      km: 15000,
-      location: 'Vicente López, Buenos Aires',
-      image: '/api/placeholder/300/200',
-      priceScore: 'muy-malo',
-      publishDate: '2025-01-11'
-    }
-  ];
-  
-
-  // Historial de precios
+  // Historial de precios (este puede seguir siendo estático por ahora)
   const priceHistory = [
     { month: 'Jul 2024', price: 7800 },
     { month: 'Ago 2024', price: 8200 },
@@ -91,6 +32,30 @@ const AutoValor = () => {
     { month: 'Dec 2024', price: 9600 },
     { month: 'Ene 2025', price: 10200 }
   ];
+
+  // Obtener cotización del dólar al cargar el componente
+  useEffect(() => {
+    const fetchDollarRate = async () => {
+      setDollarLoading(true);
+      setDollarError(null);
+      
+      try {
+        const response = await axios.get('http://localhost:8000/api/dollar-rate');
+        if (response.data && response.data.dollar_rate) {
+          setDollarRate(response.data.dollar_rate);
+        } else {
+          throw new Error('Formato de respuesta inválido');
+        }
+      } catch (err) {
+        console.error('Error al obtener cotización del dólar:', err);
+        setDollarError('Error al cargar cotización');
+      } finally {
+        setDollarLoading(false);
+      }
+    };
+    
+    fetchDollarRate();
+  }, []);
 
   // Funciones auxiliares
   const getPriceScoreColor = (score) => {
@@ -123,42 +88,117 @@ const AutoValor = () => {
     }[score] || 'w-3/5';
   };
 
-  const formatPrice = (price) =>
-    new Intl.NumberFormat('es-AR', {
+  const formatPrice = (price) => {
+    if (price === null || price === undefined || isNaN(price)) {
+      return 'Precio no disponible';
+    }
+    return new Intl.NumberFormat('es-AR', {
       style: 'currency',
       currency: 'ARS',
       minimumFractionDigits: 0
     }).format(price);
+  };
 
-  const formatUSD = (price) =>
-    new Intl.NumberFormat('en-US', {
+  const formatUSD = (price) => {
+    if (price === null || price === undefined || isNaN(price)) {
+      return 'N/A';
+    }
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 0
     }).format(price);
+  };
 
-  const handleSearch = (e) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      setHasSearched(true);
-      setTimeout(() => {
-        const section = document.getElementById('results-section');
-        if (section) section.scrollIntoView({ behavior: 'smooth' });
-      }, 100);
+  const formatOriginalPrice = (car) => {
+    if (!car.originalPrice || car.originalPrice === 0) {
+      return 'N/A';
+    }
+    
+    if (car.currency === 'USD') {
+      return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 0
+      }).format(car.originalPrice);
+    } else {
+      return new Intl.NumberFormat('es-AR', {
+        style: 'currency',
+        currency: 'ARS',
+        minimumFractionDigits: 0
+      }).format(car.originalPrice);
     }
   };
 
-  const filteredCars = mockCars.filter((car) => {
-    const matchesSearch = car.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesMin = !priceRange.min || car.priceUSD >= parseInt(priceRange.min);
-    const matchesMax = !priceRange.max || car.priceUSD <= parseInt(priceRange.max);
-    return matchesSearch && matchesMin && matchesMax;
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      setHasSearched(true);
+      setLoading(true);
+      setError(null);
+      setCars([]); // Limpiar resultados anteriores
+      
+      try {
+        // Hacer la petición al backend
+        const response = await axios.get(`http://localhost:8000/api/cars?query=${encodeURIComponent(searchQuery.trim())}`);
+        
+        // Validar que la respuesta sea un array
+        if (Array.isArray(response.data)) {
+          setCars(response.data);
+        } else {
+          setError('Formato de respuesta inválido');
+          setCars([]);
+        }
+      } catch (err) {
+        console.error('Error al buscar autos:', err);
+        if (err.response) {
+          // Error del servidor
+          setError(`Error del servidor: ${err.response.status} - ${err.response.statusText}`);
+        } else if (err.request) {
+          // Error de red
+          setError('Error de conexión. Verifica que el servidor esté corriendo en http://localhost:8000');
+        } else {
+          // Otro error
+          setError('Error inesperado al buscar autos');
+        }
+        setCars([]);
+      } finally {
+        setLoading(false);
+        // Scroll suave a la sección de resultados
+        setTimeout(() => {
+          const section = document.getElementById('results-section');
+          if (section) section.scrollIntoView({ behavior: 'smooth' });
+        }, 100);
+      }
+    }
+  };
+
+  // Filtrar autos por rango de precios (usando USD para consistencia)
+  const filteredCars = cars.filter((car) => {
+    // Validar que car y car.priceUSD existan
+    if (!car || car.priceUSD === null || car.priceUSD === undefined) {
+      return false;
+    }
+    
+    const carPrice = parseInt(car.priceUSD);
+    const minPrice = priceRange.min ? parseInt(priceRange.min) : 0;
+    const maxPrice = priceRange.max ? parseInt(priceRange.max) : Infinity;
+    
+    return carPrice >= minPrice && carPrice <= maxPrice;
   });
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Hero background={fondo}>
         <Header />
+        {/* Mostrar cotización del dólar */}
+        {dollarRate && (
+          <div className="text-center mb-4">
+            <p className="text-white text-sm bg-black bg-opacity-20 rounded-lg px-4 py-2 inline-block">
+              💱 Dólar Blue: ${dollarRate.toFixed(2)} ARS
+            </p>
+          </div>
+        )}
         <SearchForm
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
@@ -172,22 +212,56 @@ const AutoValor = () => {
         <div id="results-section" className="bg-gray-50 py-12">
           <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 lg:grid-cols-3 gap-8">
             <div className="lg:col-span-3 mb-8">
-              <ResultStats filteredCars={filteredCars} />
+              <ResultStats filteredCars={filteredCars} loading={loading} error={error} />
             </div>
-            <ResultList
-              filteredCars={filteredCars}
-              selectedCar={selectedCar}
-              setSelectedCar={setSelectedCar}
-              helpers={{
-                searchQuery,
-                formatPrice,
-                formatUSD,
-                getPriceScoreText,
-                getPriceScoreColor,
-                getPriceScoreWidth
-              }}
-            />
-            <PriceHistoryPanel data={priceHistory} />
+            
+            {/* Mostrar estado de carga */}
+            {loading && (
+              <div className="lg:col-span-3 text-center py-12">
+                <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                <p className="mt-4 text-gray-600">Buscando autos...</p>
+                <p className="text-sm text-gray-500 mt-2">Detectando monedas y convirtiendo precios...</p>
+              </div>
+            )}
+
+            {/* Mostrar errores */}
+            {error && !loading && (
+              <div className="lg:col-span-3 text-center py-12">
+                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
+                  <p className="font-bold">Error:</p>
+                  <p>{error}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Mostrar resultados */}
+            {!loading && !error && (
+              <>
+                <ResultList
+                  filteredCars={filteredCars}
+                  selectedCar={selectedCar}
+                  setSelectedCar={setSelectedCar}
+                  helpers={{
+                    searchQuery,
+                    formatPrice,
+                    formatUSD,
+                    formatOriginalPrice,
+                    getPriceScoreText,
+                    getPriceScoreColor,
+                    getPriceScoreWidth
+                  }}
+                />
+                <div className="space-y-6">
+                  <PriceHistoryPanel data={priceHistory} />
+                  {/* Componente de cotización del dólar */}
+                  <DollarRateDisplay 
+                    dollarRate={dollarRate} 
+                    loading={dollarLoading} 
+                    error={dollarError} 
+                  />
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
