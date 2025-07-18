@@ -26,7 +26,7 @@ class Car(BaseModel):
     km: int | None = None
     location: str | None = None
     image: str
-    url: str  # ← NUEVA PROPIEDAD
+    url: str
     priceScore: str
     publishDate: str | None = None
 
@@ -108,65 +108,6 @@ def extract_car_details(item):
 
     return details
 
-def get_kavak_cars(query: str, pages: int, dollar_rate: float):
-    base_url = "https://www.kavak.com/ar/usados/"
-    search_query = "-".join(query.strip().lower().split())
-    url = f"{base_url}{search_query}"
-
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-    }
-
-    cars = []
-
-    r = requests.get(url, headers=headers)
-    if r.status_code != 200:
-        return []
-
-    soup = BeautifulSoup(r.text, "html.parser")
-    cards = soup.find_all("a", class_=re.compile("card-product_cardProduct__"))
-
-    for card in cards:
-        try:
-            title = card.find("div", class_=re.compile("card-product_cardProduct__header")).text.strip()
-            price_container = card.find("div", class_=re.compile("priceContainer"))
-            price_text = price_container.get_text().strip().replace("$", "").replace(".", "")
-            price = int(re.search(r'\d+', price_text).group())
-
-            image_tag = card.find("img")
-            image = image_tag["src"] if image_tag and "src" in image_tag.attrs else ""
-
-            details_text = card.get_text()
-            year = None
-            km = None
-            year_match = re.search(r"(20\d{2}|19\d{2})", details_text)
-            km_match = re.search(r"(\d{1,3}(?:\.\d{3})*)\s*km", details_text.lower())
-
-            if year_match:
-                year = int(year_match.group())
-
-            if km_match:
-                km = int(km_match.group(1).replace(".", ""))
-
-            car = {
-                "id": len(cars) + 1,
-                "title": title,
-                "price": price,
-                "priceUSD": int(price / dollar_rate),
-                "year": year,
-                "km": km,
-                "location": "Buenos Aires",  # fija en Kavak
-                "image": image,
-                "url": "https://www.kavak.com" + card["href"],
-                "priceScore": "regular",
-                "publishDate": "desconocido"
-            }
-            cars.append(car)
-        except Exception as e:
-            print("Error al procesar una tarjeta de Kavak:", e)
-
-    return cars
-
 def extract_car_url(item):
     """
     Extrae la URL de la publicación del auto
@@ -179,8 +120,7 @@ def extract_car_url(item):
             return 'https://www.mercadolibre.com.ar' + href
         return href
     
-    return "https://www.mercadolibre.com.ar"  # fallback
-  # URL por defecto
+    return "https://www.mercadolibre.com.ar"
 
 def get_km_cluster(km):
     if km is None:
@@ -195,117 +135,156 @@ def get_km_cluster(km):
         return "+200k"
 
 @app.get("/api/cars")
-def get_cars(query: str = Query(...), pages: int = 3, include_kavak: bool = True, include_ml: bool = True):
-    search_query = "-".join(query.strip().split())
+def get_cars(query: str = Query(...), pages: int = 3, include_kavak: bool = False, include_ml: bool = True):
+    # Crear search_query solo para MercadoLibre
+    ml_search_query = "-".join(query.strip().split())
+    
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
     }
 
     dollar_rate = get_dollar_rate()
     all_cars = []
+    
+    print(f"Buscando: {query}")
+    print(f"Include ML: {include_ml}, Include Kavak: {include_kavak}")
 
+    # MERCADOLIBRE
     if include_ml:
+        print("Procesando MercadoLibre...")
         for page in range(pages):
             offset = page * 48
-            url = f"https://listado.mercadolibre.com.ar/{search_query}_Desde_{offset}"
+            url = f"https://listado.mercadolibre.com.ar/{ml_search_query}_Desde_{offset}"
+            print(f"URL ML: {url}")
 
-            r = requests.get(url, headers=headers)
-            if r.status_code != 200:
+            try:
+                r = requests.get(url, headers=headers, timeout=10)
+                if r.status_code != 200:
+                    print(f"Error en página {page}: status {r.status_code}")
+                    continue
+
+                soup = BeautifulSoup(r.text, 'html.parser')
+                items = soup.find_all('li', class_='ui-search-layout__item')
+                print(f"Encontrados {len(items)} items en página {page}")
+
+                for i, item in enumerate(items):
+                    try:
+                        # Título
+                        img_tag = item.find('img')
+                        title = img_tag['alt'] if img_tag and 'alt' in img_tag.attrs else 'N/A'
+
+                        # Imagen
+                        image = "N/A"
+                        if img_tag:
+                            if 'src' in img_tag.attrs and not img_tag['src'].startswith('data:image'):
+                                image = img_tag['src']
+                            elif 'data-src' in img_tag.attrs:
+                                image = img_tag['data-src']
+                            elif 'data-srcset' in img_tag.attrs:
+                                srcset_parts = img_tag['data-srcset'].split(',')
+                                if srcset_parts:
+                                    image = srcset_parts[-1].split()[0]
+                        
+                        if image.startswith('data:image') or image == "N/A":
+                            image = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/480px-No_image_available.svg.png"
+
+                        # Precio
+                        price_container = item.find('span', class_='andes-money-amount')
+                        original_price, is_usd = parse_price_and_currency(price_container)
+
+                        if is_usd:
+                            price_in_pesos = int(original_price * dollar_rate)
+                            price_usd = original_price
+                        else:
+                            price_in_pesos = original_price
+                            price_usd = int(original_price / dollar_rate) if original_price > 0 else 0
+
+                        # Detalles y URL
+                        car_details = extract_car_details(item)
+                        car_url = extract_car_url(item)
+
+                        car = {
+                            "id": len(all_cars) + 1,
+                            "title": title,
+                            "price": price_in_pesos,
+                            "priceUSD": price_usd,
+                            "year": car_details["year"],
+                            "km": car_details["km"],
+                            "location": car_details["location"],
+                            "image": image,
+                            "url": car_url,
+                            "priceScore": "regular",
+                            "publishDate": car_details["publishDate"] or "desconocido"
+                        }
+                        all_cars.append(car)
+                        
+                    except Exception as e:
+                        print(f"Error procesando item {i} de ML: {e}")
+                        continue
+                        
+            except Exception as e:
+                print(f"Error en página {page} de ML: {e}")
                 continue
 
-            soup = BeautifulSoup(r.text, 'html.parser')
-            items = soup.find_all('li', class_='ui-search-layout__item')
-
-            for i, item in enumerate(items):
-                img_tag = item.find('img')
-                title = img_tag['alt'] if img_tag and 'alt' in img_tag.attrs else 'N/A'
-
-                image = "N/A"
-                if img_tag:
-                    if 'src' in img_tag.attrs and not img_tag['src'].startswith('data:image'):
-                        image = img_tag['src']
-                    elif 'data-src' in img_tag.attrs:
-                        image = img_tag['data-src']
-                    elif 'data-srcset' in img_tag.attrs:
-                        srcset_parts = img_tag['data-srcset'].split(',')
-                        if srcset_parts:
-                            image = srcset_parts[-1].split()[0]
-                if image.startswith('data:image') or image == "N/A":
-                    image = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/480px-No_image_available.svg.png"
-
-                price_container = item.find('span', class_='andes-money-amount')
-                original_price, is_usd = parse_price_and_currency(price_container)
-
-                if is_usd:
-                    price_in_pesos = int(original_price * dollar_rate)
-                    price_usd = original_price
-                else:
-                    price_in_pesos = original_price
-                    price_usd = int(original_price / dollar_rate) if original_price > 0 else 0
-
-                car_details = extract_car_details(item)
-                car_url = extract_car_url(item)
-
-                car = {
-                    "id": len(all_cars) + 1,
-                    "title": title,
-                    "price": price_in_pesos,
-                    "priceUSD": price_usd,
-                    "year": car_details["year"],
-                    "km": car_details["km"],
-                    "location": car_details["location"],
-                    "image": image,
-                    "url": car_url,
-                    "priceScore": "regular",
-                    "publishDate": car_details["publishDate"] or "desconocido"
-                }
-                all_cars.append(car)
-
+    # KAVAK (solo si se solicita explícitamente)
     if include_kavak:
-        kavak_url = f"https://www.kavak.com/ar/usados/{search_query}"
-        r = requests.get(kavak_url, headers=headers)
-        if r.status_code == 200:
-            soup = BeautifulSoup(r.text, 'html.parser')
-            cards = soup.find_all("a", class_=re.compile("card-product_cardProduct__"))
+        print("Procesando Kavak...")
+        kavak_query = query.strip().lower().replace(" ", "-")
+        kavak_url = f"https://www.kavak.com/ar/usados/{kavak_query}"
+        print(f"URL Kavak: {kavak_url}")
+        try:
+            r = requests.get(kavak_url, headers=headers, timeout=10)
+            if r.status_code == 200:
+                soup = BeautifulSoup(r.text, 'html.parser')
+                cards = soup.find_all("a", class_=re.compile("card-product_cardProduct__"))
+                print(f"Encontradas {len(cards)} cards en Kavak")
+                for card in cards:
+                    try:
+                        title_elem = card.find("h3", class_=re.compile("card-product_cardProduct__title"))
+                        if not title_elem:
+                            continue  # no es una card válida
+                        title = title_elem.text.strip()
+                        # Precio
+                        price_elem = card.find("span", class_=re.compile("amount_uki-amount__large__price"))
+                        price = int(price_elem.text.strip().replace(".", "").replace("$", "")) if price_elem else 0
+                        # Año y KM
+                        subtitle = card.find("p", class_=re.compile("card-product_cardProduct__subtitle"))
+                        year, km = None, None
+                        if subtitle:
+                            text = subtitle.text
+                            year_match = re.search(r"(20\d{2}|19\d{2})", text)
+                            km_match = re.search(r"(\d{1,3}(?:\.\d{3})*)\s*km", text.lower())
+                            if year_match:
+                                year = int(year_match.group())
+                            if km_match:
+                                km = int(km_match.group(1).replace(".", ""))
+                        # Imagen
+                        image_tag = card.find("img")
+                        image = image_tag["src"] if image_tag and "src" in image_tag.attrs else ""
+                        # URL
+                        url = "https://www.kavak.com" + card["href"]
+                        car = {
+                            "id": len(all_cars) + 1,
+                            "title": title,
+                            "price": price,
+                            "priceUSD": int(price / dollar_rate) if price > 0 else 0,
+                            "year": year,
+                            "km": km,
+                            "location": "Buenos Aires",
+                            "image": image,
+                            "url": url,
+                            "priceScore": "regular",
+                            "publishDate": "desconocido"
+                        }
+                        all_cars.append(car)
+                    except Exception as e:
+                        print(f"Error procesando card de Kavak: {e}")
+            else:
+                print(f"Error en Kavak: status {r.status_code}")
+        except Exception as e:
+            print(f"Error conectando con Kavak: {e}")
 
-            for card in cards:
-                try:
-                    title = card.find("div", class_=re.compile("card-product_cardProduct__header")).text.strip()
-                    price_container = card.find("div", class_=re.compile("priceContainer"))
-                    price_text = price_container.get_text().strip().replace("$", "").replace(".", "")
-                    price = int(re.search(r'\d+', price_text).group())
-
-                    image_tag = card.find("img")
-                    image = image_tag["src"] if image_tag and "src" in image_tag.attrs else ""
-
-                    details_text = card.get_text()
-                    year = None
-                    km = None
-                    year_match = re.search(r"(20\d{2}|19\d{2})", details_text)
-                    km_match = re.search(r"(\d{1,3}(?:\.\d{3})*)\s*km", details_text.lower())
-
-                    if year_match:
-                        year = int(year_match.group())
-
-                    if km_match:
-                        km = int(km_match.group(1).replace(".", ""))
-
-                    car = {
-                        "id": len(all_cars) + 1,
-                        "title": title,
-                        "price": price,
-                        "priceUSD": int(price / dollar_rate),
-                        "year": year,
-                        "km": km,
-                        "location": "Buenos Aires",
-                        "image": image,
-                        "url": card["href"],
-                        "priceScore": "regular",
-                        "publishDate": "desconocido"
-                    }
-                    all_cars.append(car)
-                except Exception as e:
-                    print("Error al procesar una tarjeta de Kavak:", e)
+    print(f"Total autos encontrados: {len(all_cars)}")
 
     # Agrupación por km para priceScore
     cluster_prices = defaultdict(list)
@@ -340,9 +319,6 @@ def get_cars(query: str = Query(...), pages: int = 3, include_kavak: bool = True
 
     return all_cars
 
-
-
-
 @app.get("/api/dollar-rate")
 def get_current_dollar_rate():
     rate = get_dollar_rate()
@@ -354,7 +330,7 @@ def debug_html_structure(query: str = Query(...)):
     url = f"https://listado.mercadolibre.com.ar/{search_query}"
 
     headers = {
-        "User-Agent": "Mozilla/5.0",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
     }
 
     r = requests.get(url, headers=headers)
@@ -379,7 +355,6 @@ def debug_html_structure(query: str = Query(...)):
         if not attributes_container:
             attributes_container = item.find('ul', class_='ui-search-item__attributes')
         
-        # Debug de URLs también
         url_element = item.find('a', class_='ui-search-link')
         if not url_element:
             url_element = item.find('a', href=re.compile(r'/[A-Z]{3}\d+'))

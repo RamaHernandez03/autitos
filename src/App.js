@@ -104,7 +104,7 @@ const AutoValor = () => {
       setError(null);
       setCars([]);
       try {
-        const response = await axios.get(`http://localhost:8000/api/cars?query=${encodeURIComponent(searchQuery.trim())}`);
+        const response = await axios.get(`http://localhost:8000/api/cars?query=${encodeURIComponent(searchQuery.trim())}&include_kavak=true&include_ml=true`);
         if (Array.isArray(response.data)) {
           setCars(response.data);
           setPaginaActual(1);

@@ -61,7 +61,7 @@ const SearchForm = ({ searchQuery, setSearchQuery, priceRange, setPriceRange, ha
             onClick={handleSearch}
             className="w-full mt-4 bg-gradient-to-r from-yellow-400 to-orange-500 text-white font-bold py-4 px-8 rounded-xl hover:from-yellow-500 hover:to-orange-600 transition-all duration-300 transform hover:scale-105 text-lg shadow-lg"
           >
-            Buscar Ofertas
+            Busca tu autito
           </button>
         </div>
       </div>

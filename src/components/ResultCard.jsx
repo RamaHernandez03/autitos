@@ -106,6 +106,13 @@ const ResultCard = ({
             <h3 className="text-lg font-semibold text-gray-800 line-clamp-2">
               {car.title}
             </h3>
+            {car.anticipo && (
+              <div className="mt-2">
+                <span className="inline-block bg-yellow-100 text-yellow-800 text-xs px-2 py-1 rounded-full font-medium">
+                  Precio publicado es de anticipo 💰
+                </span>
+              </div>
+            )}
             <div className="ml-4 text-right">
               {/* Precio original */}
               <div className="text-sm text-gray-500 mb-1">
