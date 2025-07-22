@@ -46,6 +46,32 @@ const ResultCard = ({
     return 'bg-red-100 text-red-800'; // Alto kilometraje
   };
 
+  // Función para obtener el nombre de la fuente
+  const getSourceName = (car) => {
+    // Priorizar el campo 'source' si existe
+    if (car.source) {
+      switch (car.source.toLowerCase()) {
+        case 'v6':
+          return 'V6 Marketplace';
+        case 'kavak':
+          return 'Kavak';
+        case 'mercadolibre':
+          return 'MercadoLibre';
+        default:
+          return car.source;
+      }
+    }
+    
+    // Fallback a la lógica anterior basada en URL
+    if (car.url?.includes('kavak.com')) {
+      return 'Kavak';
+    } else if (car.url?.includes('v6.com.ar')) {
+      return 'V6 Marketplace';
+    } else {
+      return 'MercadoLibre';
+    }
+  };
+
   // Función para manejar el clic en "Ver Publicación"
   const handleViewListing = (e) => {
     e.stopPropagation(); // Evitar que se active el onSelect del card
@@ -58,9 +84,7 @@ const ResultCard = ({
 
   const transferPrice = calculateTransferPrice(car.price);
   const formattedKm = formatKilometers(car.km);
-  const sourceName = car.url?.includes('kavak.com') ? 'Kavak' : 'MercadoLibre';
-
-
+  const sourceName = getSourceName(car);
 
   return (
     <div
@@ -98,6 +122,18 @@ const ResultCard = ({
               </span>
             </div>
           )}
+          {/* Badge de fuente */}
+          <div className="absolute bottom-3 left-3">
+            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+              sourceName === 'V6 Marketplace' 
+                ? 'bg-purple-100 text-purple-800'
+                : sourceName === 'Kavak'
+                ? 'bg-orange-100 text-orange-800'
+                : 'bg-yellow-100 text-yellow-800'
+            }`}>
+              {sourceName}
+            </span>
+          </div>
         </div>
 
         {/* Información */}
@@ -175,7 +211,13 @@ const ResultCard = ({
           <div className="mb-4">
             <button
               onClick={handleViewListing}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2"
+              className={`w-full font-medium py-2 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2 ${
+                sourceName === 'V6 Marketplace'
+                  ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                  : sourceName === 'Kavak'
+                  ? 'bg-orange-600 hover:bg-orange-700 text-white'
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
             >
               <svg 
                 className="w-4 h-4" 

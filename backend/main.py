@@ -122,6 +122,131 @@ def extract_car_url(item):
     
     return "https://www.mercadolibre.com.ar"
 
+def get_v6_cars(query, dollar_rate):
+    """
+    Función mejorada para obtener autos de V6 usando su API oficial
+    """
+    print("Procesando V6 usando API oficial...")
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Origin": "https://v6.com.ar",
+        "Referer": "https://v6.com.ar/"
+    }
+    
+    v6_cars = []
+    
+    try:
+        response = requests.get(
+            "https://autoprecios-api.onrender.com/api/db/getPublishedCars", 
+            headers=headers, 
+            timeout=15
+        )
+        
+        if response.status_code != 200:
+            print(f"Error en V6 API: status {response.status_code}")
+            return v6_cars
+        
+        cars_data = response.json()
+        
+        # Filtrar autos que coincidan con la query
+        query_terms = query.lower().split()
+        
+        for car in cars_data:
+            # Crear título completo para buscar
+            full_title = f"{car.get('brand', '')} {car.get('model', '')} {car.get('version', '')}".lower()
+            
+            # Verificar si algún término de búsqueda está en el título
+            query_clean = query.lower().strip()
+            full_title = f"{car.get('brand', '')} {car.get('model', '')} {car.get('version', '')}".lower()
+
+            if query_clean in full_title:
+                try:
+                    # Construir título legible
+                    title = f"{car.get('brand', '').title()} {car.get('model', '').title()}"
+                    if car.get('version'):
+                        title += f" {car.get('version')}"
+                    if car.get('year'):
+                        title += f" {car.get('year')}"
+                    
+                    # Precio (parece que está en centavos o formato especial)
+                    price_raw = car.get('price', 0)
+                    if isinstance(price_raw, str):
+                        price_raw = int(re.sub(r'[^\d]', '', price_raw))
+                    
+                    # Si el precio es muy alto, probablemente esté en centavos
+                    if price_raw > 1000000:  # Más de 1M, probablemente centavos
+                        price_in_pesos = price_raw
+                        price_usd = int(price_raw / dollar_rate) if price_raw > 0 else 0
+                    else:  # Probablemente ya en USD
+                        price_usd = price_raw
+                        price_in_pesos = int(price_raw * dollar_rate) if price_raw > 0 else 0
+                    
+                    # Kilómetros
+                    km = None
+                    km_raw = car.get('kilometers')
+                    if km_raw:
+                        try:
+                            km = int(re.sub(r'[^\d]', '', str(km_raw)))
+                        except:
+                            pass
+                    
+                    # Año
+                    year = None
+                    year_raw = car.get('year')
+                    if year_raw:
+                        try:
+                            year = int(year_raw)
+                        except:
+                            pass
+                    
+                    # Ubicación
+                    location = car.get('city', '')
+                    if car.get('province') and location:
+                        location += f", {car.get('province')}"
+                    elif car.get('province'):
+                        location = car.get('province')
+                    
+                    # Imagen
+                    image = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/480px-No_image_available.svg.png"
+                    if car.get('cover') and car['cover'].get('url'):
+                        image = car['cover']['url']
+                    elif car.get('exterior') and len(car['exterior']) > 0:
+                        image = car['exterior'][0].get('url', image)
+                    
+                    # URL
+                    car_id = car.get('carId') or car.get('id', '')
+                    url = f"https://v6.com.ar/car/{car_id}" if car_id else "https://v6.com.ar"
+                    
+                    v6_car = {
+                        "id": len(v6_cars) + 1000,  # Offset para evitar conflictos
+                        "title": title.strip(),
+                        "price": price_in_pesos,
+                        "priceUSD": price_usd,
+                        "year": year,
+                        "km": km,
+                        "location": location or "Argentina",
+                        "image": image,
+                        "url": url,
+                        "priceScore": "regular",
+                        "publishDate": "desconocido",
+                        "source": "v6"  # ← AGREGAR ESTE CAMPO
+                    }
+                    
+                    v6_cars.append(v6_car)
+                    print(f"✅ Auto V6 agregado: {title} - ${price_usd}")
+                    
+                except Exception as e:
+                    print(f"⚠️ Error procesando auto V6: {e}")
+                    continue
+        
+        print(f"📊 V6: {len(v6_cars)} autos encontrados")
+        
+    except Exception as e:
+        print(f"❌ Error conectando con V6 API: {e}")
+    
+    return v6_cars
+
 def get_km_cluster(km):
     if km is None:
         return "desconocido"
@@ -135,7 +260,7 @@ def get_km_cluster(km):
         return "+200k"
 
 @app.get("/api/cars")
-def get_cars(query: str = Query(...), pages: int = 3, include_kavak: bool = False, include_ml: bool = True):
+def get_cars(query: str = Query(...), pages: int = 3, include_kavak: bool = False, include_ml: bool = True, include_v6: bool = False):
     # Crear search_query solo para MercadoLibre
     ml_search_query = "-".join(query.strip().split())
     
@@ -147,7 +272,12 @@ def get_cars(query: str = Query(...), pages: int = 3, include_kavak: bool = Fals
     all_cars = []
     
     print(f"Buscando: {query}")
-    print(f"Include ML: {include_ml}, Include Kavak: {include_kavak}")
+    print(f"Include ML: {include_ml}, Include Kavak: {include_kavak}, Include V6: {include_v6}")
+
+    # V6 - NUEVA IMPLEMENTACIÓN CON API
+    if include_v6:
+        v6_cars = get_v6_cars(query, dollar_rate)
+        all_cars.extend(v6_cars)
 
     # MERCADOLIBRE
     if include_ml:
@@ -214,7 +344,8 @@ def get_cars(query: str = Query(...), pages: int = 3, include_kavak: bool = Fals
                             "image": image,
                             "url": car_url,
                             "priceScore": "regular",
-                            "publishDate": car_details["publishDate"] or "desconocido"
+                            "publishDate": car_details["publishDate"] or "desconocido",
+                            "source": "mercadolibre"  # ← AGREGAR ESTE CAMPO
                         }
                         all_cars.append(car)
                         
@@ -247,6 +378,8 @@ def get_cars(query: str = Query(...), pages: int = 3, include_kavak: bool = Fals
                         # Precio
                         price_elem = card.find("span", class_=re.compile("amount_uki-amount__large__price"))
                         price = int(price_elem.text.strip().replace(".", "").replace("$", "")) if price_elem else 0
+                        if price == 0:
+                            continue
                         # Año y KM
                         subtitle = card.find("p", class_=re.compile("card-product_cardProduct__subtitle"))
                         year, km = None, None
@@ -261,8 +394,12 @@ def get_cars(query: str = Query(...), pages: int = 3, include_kavak: bool = Fals
                         # Imagen
                         image_tag = card.find("img")
                         image = image_tag["src"] if image_tag and "src" in image_tag.attrs else ""
-                        # URL
-                        url = "https://www.kavak.com" + card["href"]
+                        # URL + ID
+                        url_base = card["href"]
+                        testid = card.get("data-testid", "")
+                        match = re.search(r'card-product-(\d+)', testid)
+                        car_id = match.group(1) if match else None
+                        url = f"{url_base}?id={car_id}" if car_id else url_base
                         car = {
                             "id": len(all_cars) + 1,
                             "title": title,
@@ -274,7 +411,8 @@ def get_cars(query: str = Query(...), pages: int = 3, include_kavak: bool = Fals
                             "image": image,
                             "url": url,
                             "priceScore": "regular",
-                            "publishDate": "desconocido"
+                            "publishDate": "desconocido",
+                            "source": "kavak"  # ← AGREGAR ESTE CAMPO
                         }
                         all_cars.append(car)
                     except Exception as e:
@@ -324,6 +462,60 @@ def get_current_dollar_rate():
     rate = get_dollar_rate()
     return {"dollar_rate": rate}
 
+@app.get("/api/debug-v6")
+def debug_v6_api(query: str = Query(...)):
+    """
+    Endpoint de debug para probar la nueva API de V6
+    """
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Origin": "https://v6.com.ar",
+        "Referer": "https://v6.com.ar/"
+    }
+    
+    try:
+        response = requests.get(
+            "https://autoprecios-api.onrender.com/api/db/getPublishedCars", 
+            headers=headers, 
+            timeout=15
+        )
+        
+        if response.status_code != 200:
+            return {"error": f"Status code: {response.status_code}"}
+        
+        cars_data = response.json()
+        
+        # Filtrar por query
+        query_terms = query.lower().split()
+        filtered_cars = []
+        
+        for car in cars_data[:10]:  # Solo los primeros 10 para debug
+            full_title = f"{car.get('brand', '')} {car.get('model', '')} {car.get('version', '')}".lower()
+            
+            if any(term in full_title for term in query_terms):
+                filtered_cars.append({
+                    "id": car.get('id'),
+                    "brand": car.get('brand'),
+                    "model": car.get('model'),
+                    "version": car.get('version'),
+                    "year": car.get('year'),
+                    "price": car.get('price'),
+                    "kilometers": car.get('kilometers'),
+                    "city": car.get('city'),
+                    "province": car.get('province'),
+                    "cover_url": car.get('cover', {}).get('url', '')
+                })
+        
+        return {
+            "total_cars": len(cars_data),
+            "filtered_count": len(filtered_cars),
+            "query": query,
+            "sample_results": filtered_cars
+        }
+        
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/debug-html")
 def debug_html_structure(query: str = Query(...)):
     search_query = "-".join(query.strip().split())
@@ -369,7 +561,7 @@ def debug_html_structure(query: str = Query(...)):
             "location_html": str(location_element) if location_element else "No location element",
             "attributes_html": str(attributes_container) if attributes_container else "No attributes container"
         }
-        
+
         if attributes_container:
             attributes = attributes_container.find_all('li')
             for attr in attributes:
