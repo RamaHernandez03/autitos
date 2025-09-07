@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import config from './config';
 import './index.css';
 import fondo from './assets/mustang.jpeg';
 import Header from './components/Header';
@@ -41,7 +42,7 @@ const AutoValor = () => {
       setDollarLoading(true);
       setDollarError(null);
       try {
-        const response = await axios.get('http://localhost:8000/api/dollar-rate');
+        const response = await axios.get(`${config.API_BASE_URL}/api/dollar-rate`);
         if (response.data && response.data.dollar_rate) {
           setDollarRate(response.data.dollar_rate);
         } else {
@@ -104,7 +105,7 @@ const AutoValor = () => {
       setError(null);
       setCars([]);
       try {
-        const response = await axios.get(`http://localhost:8000/api/cars?query=${encodeURIComponent(searchQuery.trim())}&include_kavak=true&include_ml=true&include_v6=true`);
+        const response = await axios.get(`${config.API_BASE_URL}/api/cars?query=${encodeURIComponent(searchQuery.trim())}&include_kavak=true&include_ml=true&include_v6=true`);
         if (Array.isArray(response.data)) {
           setCars(response.data);
           setPaginaActual(1);
