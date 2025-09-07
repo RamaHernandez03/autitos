@@ -1,8 +1,10 @@
+// src/config.js
 const config = {
-  // Cambiar según el entorno
-  API_BASE_URL: process.env.NODE_ENV === 'production' 
-    ? 'https://autitos-two.vercel.app' 
-    : 'http://localhost:8000'
+  API_BASE_URL:
+    process.env.REACT_APP_API_BASE_URL // ← si la seteás en Vercel, toma esa
+    || (process.env.NODE_ENV === 'production'
+        ? 'autitos-production.up.railway.app' // ← backend
+        : 'http://localhost:8000'),
 };
 
 export default config;
