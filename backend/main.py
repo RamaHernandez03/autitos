@@ -6,8 +6,13 @@ from bs4 import BeautifulSoup
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta
+import math
 
 app = FastAPI()
+
+ML_SITE = "MLA"             # Argentina
+ML_CARS_CATEGORY = "MLA1744"  # Autos y Camionetas
+ML_PAGE_LIMIT = 50            # máx 50 por página en search API
 
 # Habilitar CORS para frontend en localhost
 app.add_middleware(
@@ -282,83 +287,11 @@ def get_cars(query: str = Query(...), pages: int = 3, include_kavak: bool = Fals
         v6_cars = get_v6_cars(query, dollar_rate)
         all_cars.extend(v6_cars)
 
-    # MERCADOLIBRE
+    # MERCADOLIBRE (antes: scraping)
     if include_ml:
         print("Procesando MercadoLibre...")
-        for page in range(pages):
-            offset = page * 48
-            url = f"https://listado.mercadolibre.com.ar/{ml_search_query}_Desde_{offset}"
-            print(f"URL ML: {url}")
-
-            try:
-                r = requests.get(url, headers=headers, timeout=10)
-                if r.status_code != 200:
-                    print(f"Error en página {page}: status {r.status_code}")
-                    continue
-
-                soup = BeautifulSoup(r.text, 'html.parser')
-                items = soup.find_all('li', class_='ui-search-layout__item')
-                print(f"Encontrados {len(items)} items en página {page}")
-
-                for i, item in enumerate(items):
-                    try:
-                        # Título
-                        img_tag = item.find('img')
-                        title = img_tag['alt'] if img_tag and 'alt' in img_tag.attrs else 'N/A'
-
-                        # Imagen
-                        image = "N/A"
-                        if img_tag:
-                            if 'src' in img_tag.attrs and not img_tag['src'].startswith('data:image'):
-                                image = img_tag['src']
-                            elif 'data-src' in img_tag.attrs:
-                                image = img_tag['data-src']
-                            elif 'data-srcset' in img_tag.attrs:
-                                srcset_parts = img_tag['data-srcset'].split(',')
-                                if srcset_parts:
-                                    image = srcset_parts[-1].split()[0]
-                        
-                        if image.startswith('data:image') or image == "N/A":
-                            image = "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/480px-No_image_available.svg.png"
-
-                        # Precio
-                        price_container = item.find('span', class_='andes-money-amount')
-                        original_price, is_usd = parse_price_and_currency(price_container)
-
-                        if is_usd:
-                            price_in_pesos = int(original_price * dollar_rate)
-                            price_usd = original_price
-                        else:
-                            price_in_pesos = original_price
-                            price_usd = int(original_price / dollar_rate) if original_price > 0 else 0
-
-                        # Detalles y URL
-                        car_details = extract_car_details(item)
-                        car_url = extract_car_url(item)
-
-                        car = {
-                            "id": len(all_cars) + 1,
-                            "title": title,
-                            "price": price_in_pesos,
-                            "priceUSD": price_usd,
-                            "year": car_details["year"],
-                            "km": car_details["km"],
-                            "location": car_details["location"],
-                            "image": image,
-                            "url": car_url,
-                            "priceScore": "regular",
-                            "publishDate": car_details["publishDate"] or "desconocido",
-                            "source": "mercadolibre"  # ← AGREGAR ESTE CAMPO
-                        }
-                        all_cars.append(car)
-                        
-                    except Exception as e:
-                        print(f"Error procesando item {i} de ML: {e}")
-                        continue
-                        
-            except Exception as e:
-                print(f"Error en página {page} de ML: {e}")
-                continue
+        ml_cars = get_ml_cars(query, dollar_rate, pages=pages)
+        all_cars.extend(ml_cars)
 
     # KAVAK (solo si se solicita explícitamente)
     if include_kavak:
@@ -459,6 +392,143 @@ def get_cars(query: str = Query(...), pages: int = 3, include_kavak: bool = Fals
         car["priceScore"] = score
 
     return all_cars
+
+def get_ml_cars(query: str, dollar_rate: float, pages: int = 3):
+    """
+    Busca autos en Mercado Libre usando la API oficial:
+    https://api.mercadolibre.com/sites/MLA/search
+    Nota: Para km y año más precisos podemos enriquecer con /items más abajo.
+    """
+    ml_cars = []
+
+    # Normalizamos query y armamos paginado por offset
+    q = query.strip()
+    total_to_fetch = pages * ML_PAGE_LIMIT
+
+    # Headers opcionales (no necesarios para la API, pero útil para trazas)
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "autitos/1.0 (+https://autitos-two.vercel.app)"
+    }
+
+    fetched = 0
+    offset = 0
+    while fetched < total_to_fetch:
+        try:
+            params = {
+                "q": q,
+                "category": ML_CARS_CATEGORY,
+                "limit": ML_PAGE_LIMIT,
+                "offset": offset
+            }
+            r = requests.get(
+                f"https://api.mercadolibre.com/sites/{ML_SITE}/search",
+                headers=headers, params=params, timeout=10
+            )
+            if r.status_code != 200:
+                print(f"[ML API] status {r.status_code} offset {offset}")
+                break
+
+            data = r.json()
+            results = data.get("results", [])
+            if not results:
+                break
+
+            # Junta IDs para enriquecer atributos (km/año) con /items
+            ids = [item.get("id") for item in results if item.get("id")]
+            attrs_map = {}
+            if ids:
+                # batch hasta 20 por request para /items
+                for i in range(0, len(ids), 20):
+                    group = ids[i:i+20]
+                    rr = requests.get(
+                        "https://api.mercadolibre.com/items",
+                        params={"ids": ",".join(group)}, timeout=10
+                    )
+                    if rr.status_code == 200:
+                        arr = rr.json()
+                        for entry in arr:
+                            if isinstance(entry, dict) and entry.get("code") == 200:
+                                item = entry.get("body", {})
+                                attrs_map[item.get("id")] = item
+                    else:
+                        print(f"[ML items] status {rr.status_code}")
+
+            for item in results:
+                try:
+                    item_id = item.get("id", "")
+                    title = item.get("title", "N/A")
+                    price_value = item.get("price", 0) or 0
+                    currency_id = item.get("currency_id", "ARS")
+                    permalink = item.get("permalink", "")
+                    thumbnail = item.get("thumbnail", "") or item.get("thumbnail_id", "")
+                    # imagen más grande si viene secure_thumbnail
+                    image = item.get("secure_thumbnail") or thumbnail or "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/No_image_available.svg/480px-No_image_available.svg.png"
+
+                    # ubicación
+                    addr = item.get("address", {}) or {}
+                    city = addr.get("city_name") or ""
+                    state = addr.get("state_name") or ""
+                    location = ", ".join([p for p in [city, state] if p]) or "Argentina"
+
+                    # precio en ARS / USD
+                    if currency_id == "USD":
+                        price_usd = int(price_value)
+                        price_ars = int(price_value * dollar_rate)
+                    else:
+                        price_ars = int(price_value)
+                        price_usd = int(price_value / dollar_rate) if price_value else 0
+
+                    # Enriquecer con atributos (km/año) desde /items
+                    year, km = None, None
+                    body = attrs_map.get(item_id, {})
+                    for att in (body.get("attributes") or []):
+                        # Names suelen ser 'Año' y 'Kilómetros'
+                        name = (att.get("name") or "").lower()
+                        val = att.get("value_name") or ""
+                        if "año" in name:
+                            try:
+                                y = int(re.search(r"(19|20)\d{2}", val).group()) if re.search(r"(19|20)\d{2}", val) else None
+                                if y and 1950 <= y <= 2030:
+                                    year = y
+                            except:
+                                pass
+                        if "kilómetro" in name or "kilometro" in name:
+                            try:
+                                km = int(re.sub(r"[^\d]", "", val)) if val else None
+                            except:
+                                pass
+
+                    ml_cars.append({
+                        "id": len(ml_cars) + 1,
+                        "title": title,
+                        "price": price_ars,
+                        "priceUSD": price_usd,
+                        "year": year,
+                        "km": km,
+                        "location": location,
+                        "image": image,
+                        "url": permalink,
+                        "priceScore": "regular",
+                        "publishDate": "desconocido",
+                        "source": "mercadolibre"
+                    })
+
+                except Exception as e:
+                    print(f"[ML parse] {e}")
+                    continue
+
+            fetched += len(results)
+            offset += ML_PAGE_LIMIT
+            if len(results) < ML_PAGE_LIMIT:
+                break
+
+        except Exception as e:
+            print(f"[ML API error] {e}")
+            break
+
+    print(f"[ML API] total agregados: {len(ml_cars)}")
+    return ml_cars
 
 @app.get("/api/dollar-rate")
 def get_current_dollar_rate():
